@@ -1,0 +1,15 @@
+{
+  "name": "login-screen-server",
+  "private": true,
+  "version": "0.1.0",
+  "//": "type: module lets us write `import x from 'y'` instead of require().",
+  "//2": "The client uses the same setting, so both halves look alike.",
+  "type": "module",
+  "scripts": {
+    "//": "--watch is built into Node 18+; it restarts on every file save.",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
