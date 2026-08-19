@@ -1,0 +1,204 @@
+.side-panel {
+  /* Thickness of the two chevron strokes. These track the viewport width so
+     the artwork keeps the same proportions as the panel grows, with a floor
+     and a ceiling so it never gets spindly or cartoonish. */
+  --stroke-dark: clamp(26px, 5.4vw, 92px);
+  --stroke-light: clamp(30px, 6.1vw, 104px);
+
+  position: relative;
+  flex: 0 0 39%;
+
+  /* `clip`, not `hidden` — this matters. The decorative shapes below are wider
+     than the panel, and `overflow: hidden` would make the panel a scroll
+     container: clicking a tab focuses the button, the browser scrolls it into
+     view, and the whole panel silently slides sideways. `overflow: clip` clips
+     the artwork without ever making the element scrollable. */
+  overflow: clip;
+
+  background: linear-gradient(155deg, var(--panel-lit) 0%, var(--panel-mid) 42%, var(--panel-deep) 100%);
+}
+
+/* --- Decorative artwork -------------------------------------------------- */
+
+/* Every shape is sized as a percentage of the panel, with aspect-ratio keeping
+   it square. That is what lets the same four elements fill a full-height
+   column on a desktop and a short banner on a phone. */
+.side-panel__shape {
+  position: absolute;
+  pointer-events: none;
+  aspect-ratio: 1;
+}
+
+/* A deep navy wash bleeding in from the top-left corner. */
+.side-panel__shape--wash {
+  inset: -25% 25% 45% -30%;
+  aspect-ratio: auto;
+  background: linear-gradient(135deg, rgba(1, 5, 14, 0.78), rgba(1, 5, 14, 0));
+  transform: rotate(-14deg);
+}
+
+/* A square with borders on two adjacent sides only. Rotating it 45deg turns
+   that corner into an arrowhead pointing left.
+
+   Positioning these is geometry, not guesswork. For a square of side W rotated
+   45deg about its centre:
+       arrowhead lands at   left - 0.207 * W
+       arms span            0.707 * W horizontally, and the same vertically
+   So to put the point just inside the left edge with the arms reaching all the
+   way across, W has to be about 1.4x the panel width and `left` has to be
+   positive — pulling the box right so the rotated point swings back to the
+   edge. `top: 50%` + translateY(-50%) then centres it vertically regardless of
+   how tall the panel gets.
+   All widths are percentages of the PANEL WIDTH (that is what % resolves
+   against for `width`), which is why they exceed 100%. */
+.side-panel__shape--chevron-dark {
+  width: 168%;
+  left: 27%;
+  top: 46%;
+  border-left: var(--stroke-dark) solid rgba(2, 10, 24, 0.55);
+  border-bottom: var(--stroke-dark) solid rgba(2, 10, 24, 0.55);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+/* The neon one. `filter: drop-shadow` follows the element's actual painted
+   alpha rather than its box, so the glow hugs the two chevron arms instead of
+   outlining the invisible square they belong to — which is what box-shadow
+   would have done. */
+.side-panel__shape--chevron {
+  width: 122%;
+  left: 31%;
+  top: 54%;
+  border-left: var(--stroke-light) solid rgba(0, 229, 255, 0.42);
+  border-bottom: var(--stroke-light) solid rgba(0, 229, 255, 0.42);
+  transform: translateY(-50%) rotate(45deg);
+  filter: drop-shadow(0 0 26px var(--glow-strong));
+}
+
+/* An electric-blue sheen filling the lower-right of the panel. */
+.side-panel__shape--slab {
+  width: 128%;
+  right: -73%;
+  bottom: -32%;
+  background: linear-gradient(135deg, rgba(43, 123, 255, 0.3), rgba(43, 123, 255, 0.05));
+  transform: rotate(45deg);
+}
+
+/* A faint HUD grid over the top of everything, faded out towards the bottom
+   right so it never competes with the tabs. */
+.side-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, var(--glow-faint) 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(90deg, var(--glow-faint) 0 1px, transparent 1px 46px);
+  -webkit-mask-image: linear-gradient(155deg, #000 0%, transparent 72%);
+  mask-image: linear-gradient(155deg, #000 0%, transparent 72%);
+}
+
+/* --- Tabs ---------------------------------------------------------------- */
+
+.side-panel__tabs {
+  position: absolute;
+  top: 40%;
+  right: 0;
+  z-index: 1; /* above the grid overlay */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  padding: 14px 26px;
+  border-radius: 999px 0 0 999px;
+  /* Without this, clicking a tab drags a text selection across the label. */
+  user-select: none;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.tab:hover:not(.tab--active) {
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--neon-soft);
+}
+
+/* The active tab takes the form half's surface colour and runs its right edge
+   off the panel, so it reads as physically joined to the form area next to it. */
+.tab--active {
+  background: var(--surface);
+  color: var(--neon);
+  font-weight: 700;
+  text-shadow: 0 0 14px var(--glow-strong);
+  padding-right: 32px;
+  margin-right: -1px;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--neon);
+  outline-offset: -4px;
+}
+
+@media (max-width: 720px) {
+  .side-panel {
+    flex: 0 0 168px;
+  }
+
+  /* The percentage-based shapes would be almost entirely clipped by a short
+     banner, so they are re-pinned in pixels to show a readable slice. */
+  .side-panel__shape--wash {
+    inset: -40% 45% -10% -20%;
+  }
+
+  /* Same `left - 0.207 * W` rule as the desktop chevrons, just solved for a
+     168px banner: `left` has to stay positive to keep the arrowheads on
+     screen. `top: 50%` is kept so the base translateY(-50%) still centres them. */
+  .side-panel__shape--chevron-dark {
+    width: 290px;
+    left: 40px;
+    top: 50%;
+    border-left-width: 26px;
+    border-bottom-width: 26px;
+  }
+
+  .side-panel__shape--chevron {
+    width: 200px;
+    left: 60px;
+    top: 50%;
+    border-left-width: 30px;
+    border-bottom-width: 30px;
+    filter: drop-shadow(0 0 16px var(--glow-strong));
+  }
+
+  .side-panel__shape--slab {
+    width: 270px;
+    right: -148px;
+    bottom: -116px;
+  }
+
+  .side-panel__tabs {
+    inset: auto 0 0 0;
+    flex-direction: row;
+    justify-content: center;
+    gap: 0;
+  }
+
+  /* A 999px radius on a wide-but-short pill turns it into a dome, so the
+     stacked-layout tabs get a plain rounded top instead. */
+  .tab {
+    border-radius: 16px 16px 0 0;
+    padding: 12px 24px;
+  }
+
+  .tab--active {
+    margin-right: 0;
+    margin-bottom: -1px;
+    padding-right: 24px;
+  }
+}

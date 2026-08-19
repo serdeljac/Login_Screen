@@ -1,0 +1,9 @@
+/* The page is now the card: a full-bleed two-column split with no margin.
+   100dvh ("dynamic viewport height") is the mobile-safe version of 100vh — it
+   accounts for the browser's address bar showing and hiding. 100vh is listed
+   first as the fallback for older browsers. */
+.page {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+}

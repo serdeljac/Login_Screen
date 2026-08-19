@@ -1,0 +1,17 @@
+.auth-card {
+  flex: 1;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--surface);
+  overflow: clip; /* see the note in SidePanel.css — never `hidden` here */
+}
+
+/* Below this width the two-column split stops working: the decorative panel
+   becomes a short banner across the top and the tabs sit side by side beneath
+   it, with the form filling everything below. */
+@media (max-width: 720px) {
+  .auth-card {
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,76 @@
+/* ---------------------------------------------------------------------------
+   Global styles: design tokens, a small reset, and the page background.
+   Component-specific styles live next to their component in src/components/.
+
+   Every colour in the app is declared here and nowhere else. To retheme the
+   whole thing, change these values — no component CSS should contain a raw
+   hex code.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Tells the browser to render its own UI (scrollbars, form controls,
+     autofill) in dark mode. Without it you get light scrollbars on a dark page. */
+  color-scheme: dark;
+
+  /* --- Backdrop ----------------------------------------------------------- */
+  --void: #03060f;
+
+  /* --- Surfaces ----------------------------------------------------------- */
+  --surface: #070c18; /* the form half */
+  --surface-raised: #0e1728; /* chips and buttons that sit above it */
+  --surface-hover: #16233c;
+
+  /* --- Decorative panel blues --------------------------------------------- */
+  --panel-deep: #04101f;
+  --panel-mid: #0a2749;
+  --panel-lit: #0e4c85;
+
+  /* --- Neon accents ------------------------------------------------------- */
+  --neon: #00e5ff;
+  --neon-soft: #7ceeff;
+  --blue: #2b7bff;
+
+  /* Glow colours are kept as separate tokens because they are used inside
+     box-shadow and text-shadow, which cannot take an alpha of a hex token. */
+  --glow-strong: rgba(0, 229, 255, 0.62);
+  --glow-mid: rgba(0, 229, 255, 0.38);
+  --glow-faint: rgba(0, 229, 255, 0.16);
+
+  /* --- Text and lines ----------------------------------------------------- */
+  --ink: #e6f3ff;
+  --ink-soft: #93aac9;
+  --ink-muted: #6b83a6;
+  --hairline: #1b2d4a;
+  --on-neon: #02121f; /* dark text used on top of a bright neon fill */
+
+  --font-sans: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+
+  /* Mostly hidden behind the full-bleed layout, but it shows through on
+     overscroll — without it you get a white flash at the edges. */
+  background-color: var(--void);
+  background-image: radial-gradient(120% 90% at 50% 0%, #0a1a33 0%, var(--void) 62%);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
