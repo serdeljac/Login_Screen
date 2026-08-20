@@ -141,3 +141,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# The stand-in database: real (hashed) accounts, not something to commit.
+server/users.json

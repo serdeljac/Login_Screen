@@ -88,7 +88,7 @@ export default function AuthForm({ mode }) {
       }
 
       setStatus('done')
-      setMessage(`Server received the signup for ${data.user.email}.`)
+      setMessage(`Account created for ${data.user.email}.`)
     } catch (error) {
       // Reached when the server is not running at all.
       setStatus('error')
