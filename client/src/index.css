@@ -42,6 +42,7 @@
   --ink-muted: #6b83a6;
   --hairline: #1b2d4a;
   --on-neon: #02121f; /* dark text used on top of a bright neon fill */
+  --danger: #ff7d8f; /* form errors — light enough to stay legible on --surface */
 
   --font-sans: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }

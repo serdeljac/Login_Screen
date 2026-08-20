@@ -195,6 +195,36 @@
   transform: translateY(0);
 }
 
+/* While a request is in flight. */
+.auth-form__submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+/* --- Submit feedback ------------------------------------------------------ */
+
+/* min-height reserves the line even when the text is empty, so the layout does
+   not jump the first time a message appears. */
+.auth-form__message {
+  width: 100%;
+  margin: 18px 0 0;
+  min-height: 1.3em;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.auth-form__message--error {
+  color: var(--danger);
+}
+
+.auth-form__message--done {
+  color: var(--neon);
+}
+
 /* --- Social strip -------------------------------------------------------- */
 
 /* The hairline spans the full half; the contents are capped and centred so

@@ -5,17 +5,22 @@ import { UserBadgeIcon, UserIcon, LockIcon } from './icons.jsx'
 import './AuthForm.css'
 
 /**
- * The white right-hand half of the screen.
+ * The right-hand half of the screen.
  *
- * NOTE (step 1 of the project): this form deliberately does not do anything on
- * submit. It renders, it tracks what you type, and it stops the browser's
- * default page reload — that is all. Talking to a server is step 3.
+ * Sign-up now posts to the Node server. Login still does nothing on submit —
+ * it has no route yet (that is stage 4 of the roadmap).
  *
  * Props:
  *   mode  'login' | 'signup' — decides the heading, the fields and the button
  */
 export default function AuthForm({ mode }) {
   const isSignUp = mode === 'signup'
+
+  // What the form is currently doing, and the one line of feedback shown to
+  // the user. 'sending' exists so the button can be disabled while a request
+  // is in flight — otherwise an impatient double-click sends two signups.
+  const [status, setStatus] = useState('idle') // 'idle' | 'sending' | 'error' | 'done'
+  const [message, setMessage] = useState('')
 
   // One state object for the whole form. `handleChange` below writes into it
   // using each input's `name` attribute, so adding a field needs no new state.
@@ -31,13 +36,64 @@ export default function AuthForm({ mode }) {
     setValues((previous) => ({ ...previous, [name]: value }))
   }
 
-  function handleSubmit(event) {
+  // `async` because sending a request takes time. The function pauses at each
+  // `await` and lets the browser keep painting instead of freezing the page.
+  async function handleSubmit(event) {
     // Without this the browser reloads the page and the React state is lost.
     event.preventDefault()
 
-    // STEP 3 — this is where the request to the Node server will go:
-    //   await fetch('/api/register', { method: 'POST', ... })
-    // Left empty on purpose so the UI can be finished first.
+    // Login has no server route yet — stage 4.
+    if (!isSignUp) return
+
+    // A check the server cannot do for us: only the browser knows what was
+    // typed in the second password box. Client-side checks like this one are
+    // for fast feedback only; the server must still validate everything,
+    // because anything sent from a browser can be faked.
+    if (values.password !== values.confirmPassword) {
+      setStatus('error')
+      setMessage('Passwords do not match.')
+      return
+    }
+
+    setStatus('sending')
+    setMessage('')
+
+    try {
+      // The URL has no hostname, so it goes to whatever origin the page is on
+      // (localhost:5173) and Vite's proxy forwards it to the Node server.
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        // Without this header Express does not know the body is JSON, and
+        // express.json() will not parse it — req.body ends up empty.
+        headers: { 'Content-Type': 'application/json' },
+        // The body must be a string. JSON.stringify turns the object into one.
+        body: JSON.stringify({
+          fullName: values.fullName,
+          email: values.email,
+          password: values.password,
+        }),
+      })
+
+      // Reading the body is a second await: the headers arrive first, the body
+      // streams in after.
+      const data = await response.json()
+
+      // Surprising but important: fetch only rejects when the request never
+      // happened at all (server down, no network). A 400 or a 500 is still a
+      // successful round trip, so failures have to be checked by hand.
+      if (!response.ok) {
+        setStatus('error')
+        setMessage(data.error || 'Something went wrong.')
+        return
+      }
+
+      setStatus('done')
+      setMessage(`Server received the signup for ${data.user.email}.`)
+    } catch (error) {
+      // Reached when the server is not running at all.
+      setStatus('error')
+      setMessage('Could not reach the server.')
+    }
   }
 
   return (
@@ -101,17 +157,32 @@ export default function AuthForm({ mode }) {
 
           <div className="auth-form__actions">
             {isSignUp ? (
-              <span className="auth-form__hint">Already have an account?</span>
+              <span className="auth-form__hint">Don't have an account?</span>
             ) : (
               <a className="auth-form__link" href="#forgot-password">
                 Forgot Password?
               </a>
             )}
 
-            <button type="submit" className="auth-form__submit">
-              {isSignUp ? 'SIGN UP' : 'LOGIN'}
+            <button
+              type="submit"
+              className="auth-form__submit"
+              disabled={status === 'sending'}
+            >
+              {status === 'sending' ? '...' : isSignUp ? 'SIGN UP' : 'LOGIN'}
             </button>
           </div>
+
+          {/* Always rendered, even when empty. A screen reader only announces
+              changes inside a live region that already existed, so adding the
+              element at the same moment as the text would say nothing. */}
+          <p
+            className={`auth-form__message auth-form__message--${status}`}
+            role="status"
+            aria-live="polite"
+          >
+            {message}
+          </p>
         </div>
       </form>
 
