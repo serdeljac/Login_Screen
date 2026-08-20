@@ -11,15 +11,17 @@ import './AuthForm.css'
  * it has no route yet (that is stage 4 of the roadmap).
  *
  * Props:
- *   mode  'login' | 'signup' — decides the heading, the fields and the button
+ *   mode             'login' | 'signup' — decides the heading, fields and button
+ *   onAuthenticated  called with the new user once the server has created it;
+ *                    App reacts by swapping the whole screen
  */
-export default function AuthForm({ mode }) {
+export default function AuthForm({ mode, onAuthenticated }) {
   const isSignUp = mode === 'signup'
 
   // What the form is currently doing, and the one line of feedback shown to
   // the user. 'sending' exists so the button can be disabled while a request
   // is in flight — otherwise an impatient double-click sends two signups.
-  const [status, setStatus] = useState('idle') // 'idle' | 'sending' | 'error' | 'done'
+  const [status, setStatus] = useState('idle') // 'idle' | 'sending' | 'error'
   const [message, setMessage] = useState('')
 
   // One state object for the whole form. `handleChange` below writes into it
@@ -87,8 +89,9 @@ export default function AuthForm({ mode }) {
         return
       }
 
-      setStatus('done')
-      setMessage(`Account created for ${data.user.email}.`)
+      // Hand the new user up to App, which swaps the screen. This component is
+      // unmounted as a result, so there is no point setting any state here.
+      onAuthenticated(data.user)
     } catch (error) {
       // Reached when the server is not running at all.
       setStatus('error')

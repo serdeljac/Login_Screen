@@ -221,10 +221,6 @@
   color: var(--danger);
 }
 
-.auth-form__message--done {
-  color: var(--neon);
-}
-
 /* --- Social strip -------------------------------------------------------- */
 
 /* The hairline spans the full half; the contents are capped and centred so

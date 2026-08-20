@@ -1,0 +1,14 @@
+/* flex: 1 makes this fill the .page split the auth card used to occupy, so the
+   dark page background covers the viewport instead of leaving white below. */
+.welcome {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+.welcome__note {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  color: var(--ink-muted);
+}
