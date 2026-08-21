@@ -113,6 +113,48 @@ app.post('/api/register', async (req, res) => {
   })
 })
 
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body
+
+  if (!email || !password) {
+    return res.status(400).json({ ok: false, error: 'Email and password are required.' })
+  }
+
+  const users = await readUsers()
+  const user = users.find((candidate) => candidate.email === email.trim().toLowerCase())
+
+  // How checking a password works when the password was never stored: hash
+  // what was just typed, using the salt baked into the stored hash, and see
+  // whether the result matches. compare() does all of that. Nothing is ever
+  // decrypted, because a hash cannot be reversed in the first place.
+  const passwordMatches = user
+    ? await bcrypt.compare(password, user.passwordHash)
+    : false
+
+  // One reply for both failures, on purpose. If an unknown email said "no such
+  // account" and a wrong password said "wrong password", anyone could feed this
+  // route a list of addresses and learn which ones are registered here. That is
+  // called user enumeration. (A thorough version also hashes a throwaway string
+  // when the user does not exist, so that the *time* taken does not give the
+  // same answer away.)
+  //
+  // 401 = "unauthenticated": I do not know who you are. Not 400 — the request
+  // was perfectly well formed, the credentials were simply wrong.
+  if (!user || !passwordMatches) {
+    return res.status(401).json({ ok: false, error: 'Email or password is incorrect.' })
+  }
+
+  console.log('logged in:', user.email)
+
+  // STEP 2 — this is where the session cookie will be issued. Right now the
+  // reply is just an answer to "are these credentials valid?", and the server
+  // forgets you the instant it finishes sending it.
+  res.json({
+    ok: true,
+    user: { id: user.id, fullName: user.fullName, email: user.email },
+  })
+})
+
 app.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`)
 })
