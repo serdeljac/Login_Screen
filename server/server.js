@@ -249,6 +249,26 @@ app.get('/api/me', requireSession, (req, res) => {
   res.json({ ok: true, user: publicUser(req.user) })
 })
 
+// No requireSession in front of this one on purpose: logging out when you were
+// not signed in should quietly succeed rather than fail. Asking for a state
+// that is already true is not an error.
+app.post('/api/logout', (req, res) => {
+  const sessionId = req.cookies[SESSION_COOKIE]
+
+  // THIS is the line that ends the session. Deleting the server's entry makes
+  // the id worthless everywhere, including in any copy of the cookie someone
+  // had already captured. Clearing the browser's cookie below is only tidying
+  // up — if the cookie itself carried the identity, rather than pointing at a
+  // row the server controls, there would be no way to revoke it at all.
+  sessions.delete(sessionId)
+
+  // The options here have to match the ones used when setting it, or the
+  // browser treats it as a different cookie and leaves the original in place.
+  res.clearCookie(SESSION_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax' })
+
+  res.json({ ok: true })
+})
+
 app.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`)
 })

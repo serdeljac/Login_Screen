@@ -31,6 +31,13 @@ export default function App() {
       .finally(() => setCheckingSession(false))
   }, []) // The empty array means "run once", not after every render.
 
+  async function handleLogout() {
+    // Tell the server first — that is what actually ends the session. Clearing
+    // `user` only changes what this browser tab is showing.
+    await fetch('/api/logout', { method: 'POST' })
+    setUser(null)
+  }
+
   // Deliberately blank for the fraction of a second the check takes.
   if (checkingSession) return <main className="page" />
 
@@ -38,7 +45,11 @@ export default function App() {
   // exactly like a page change to the person using it — the URL never changes.
   return (
     <main className="page">
-      {user ? <Welcome user={user} /> : <AuthCard onAuthenticated={setUser} />}
+      {user ? (
+        <Welcome user={user} onLogout={handleLogout} />
+      ) : (
+        <AuthCard onAuthenticated={setUser} />
+      )}
     </main>
   )
 }

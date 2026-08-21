@@ -2,8 +2,11 @@
    dark page background covers the viewport instead of leaving white below. */
 .welcome {
   flex: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
 }
 
 .welcome__note {
@@ -11,4 +14,29 @@
   font-size: 13px;
   letter-spacing: 0.4px;
   color: var(--ink-muted);
+}
+
+/* A quiet outline button rather than the neon fill of the submit button:
+   logging out is not the thing anyone came here to do. */
+.welcome__logout {
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 9px 22px;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
+}
+
+.welcome__logout:hover {
+  border-color: var(--neon);
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.welcome__logout:focus-visible {
+  outline: 2px solid var(--neon);
+  outline-offset: 2px;
 }

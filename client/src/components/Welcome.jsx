@@ -1,16 +1,19 @@
 import './Welcome.css'
 
 /**
- * Where you land after signing up.
+ * Where you land after signing up or logging in.
  *
- * Blank on purpose — it is the placeholder for whatever the real app becomes.
- * The one line of text is only there so it is obvious the swap happened;
- * delete it and this is a genuinely empty page.
+ * Still blank on purpose — it is the placeholder for whatever the real app
+ * becomes. The line of text and the button are the only things here.
  */
-export default function Welcome({ user }) {
+export default function Welcome({ user, onLogout }) {
   return (
     <div className="welcome">
       <p className="welcome__note">Signed in as {user.email}</p>
+
+      <button type="button" className="welcome__logout" onClick={onLogout}>
+        LOG OUT
+      </button>
     </div>
   )
 }
