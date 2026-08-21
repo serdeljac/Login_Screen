@@ -1,6 +1,7 @@
 import express from 'express'
 import bcrypt from 'bcryptjs'
-import { randomUUID } from 'node:crypto'
+import cookieParser from 'cookie-parser'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 
 const app = express()
@@ -30,11 +31,98 @@ async function writeUsers(users) {
   await writeFile(USERS_FILE, JSON.stringify(users, null, 2))
 }
 
+// --- Sessions ---------------------------------------------------------------
+
+// sessionId -> { userId, createdAt }
+//
+// Just a Map in memory, so every session vanishes when the server restarts —
+// including every time `node --watch` reloads this file after a save. Real apps
+// keep sessions in Redis or a database table, because a restart (or a second
+// server behind a load balancer) must not sign everybody out.
+const sessions = new Map()
+
+const SESSION_COOKIE = 'sid'
+const SESSION_MAX_AGE = 1000 * 60 * 60 * 24 * 7 // 7 days, in milliseconds
+
+function startSession(res, userId) {
+  // 32 random bytes = 256 bits from a cryptographic random source, so the id
+  // cannot be guessed or brute-forced. It carries no information at all: it is
+  // a meaningless ticket stub, and only the server's Map knows which user it
+  // points at. That is exactly why it is safe to hand to a browser — and why
+  // deleting the entry instantly makes a stolen one worthless.
+  const sessionId = randomBytes(32).toString('base64url')
+  sessions.set(sessionId, { userId, createdAt: Date.now() })
+
+  // res.cookie() just sets a Set-Cookie response header. From then on the
+  // browser attaches it to every request to this origin automatically — there
+  // is no client-side code for this at all.
+  res.cookie(SESSION_COOKIE, sessionId, {
+    // JavaScript on the page cannot read this cookie: no document.cookie, no
+    // fetch, nothing. So a script injected into your page (XSS) cannot steal
+    // the session. This is the one big advantage over keeping a token in
+    // localStorage, which any script can read.
+    httpOnly: true,
+
+    // The browser will not attach this cookie to requests started by *other*
+    // sites, which is what blocks the basic CSRF attack: evil.com submitting a
+    // form to your API and having the browser helpfully sign it as you.
+    sameSite: 'lax',
+
+    // HTTPS-only. Must stay false here or the cookie is dropped on
+    // http://localhost; must be true in production.
+    secure: false,
+
+    maxAge: SESSION_MAX_AGE,
+    path: '/',
+  })
+}
+
+// The only shape of a user that is ever allowed out of this server. Writing it
+// once means the password hash cannot leak by someone forgetting to strip it.
+function publicUser(user) {
+  return { id: user.id, fullName: user.fullName, email: user.email }
+}
+
+// Middleware again — but this one guards. Put it in front of any route that
+// requires a signed-in user:
+//
+//   app.get('/api/something', requireSession, handler)
+//
+// Express runs it first and it has two choices: answer the request itself
+// (401, and the handler never runs), or call next() to pass control along. It
+// leaves the user on `req` so the handler does not have to look them up again.
+async function requireSession(req, res, next) {
+  const sessionId = req.cookies[SESSION_COOKIE]
+  const session = sessionId ? sessions.get(sessionId) : undefined
+
+  if (!session) {
+    return res.status(401).json({ ok: false, error: 'Not signed in.' })
+  }
+
+  const users = await readUsers()
+  const user = users.find((candidate) => candidate.id === session.userId)
+
+  // A live session pointing at an account that no longer exists — deleted
+  // since, or wiped along with users.json. Throw the session away too.
+  if (!user) {
+    sessions.delete(sessionId)
+    return res.status(401).json({ ok: false, error: 'Not signed in.' })
+  }
+
+  req.user = user
+  req.sessionId = sessionId
+  next()
+}
+
 // Middleware: runs on every request before the routes below. This one reads the
 // raw bytes of the request body, parses them as JSON, and puts the result on
 // req.body. Without it, req.body is undefined — Express does not parse bodies
 // by default.
 app.use(express.json())
+
+// The mirror image of express.json(): it reads the Cookie request header and
+// turns it into the object req.cookies. Without it, req.cookies is undefined.
+app.use(cookieParser())
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, message: 'server is alive' })
@@ -105,12 +193,13 @@ app.post('/api/register', async (req, res) => {
 
   console.log('registered:', user.email)
 
+  // Signing up signs you in — otherwise the very next thing anyone does is log
+  // in with the password they just chose.
+  startSession(res, user.id)
+
   // 201 = "created". And note what goes back: no password, no hash. Send the
   // client only what it needs to show the next screen.
-  res.status(201).json({
-    ok: true,
-    user: { id: user.id, fullName: user.fullName, email: user.email },
-  })
+  res.status(201).json({ ok: true, user: publicUser(user) })
 })
 
 app.post('/api/login', async (req, res) => {
@@ -146,13 +235,18 @@ app.post('/api/login', async (req, res) => {
 
   console.log('logged in:', user.email)
 
-  // STEP 2 — this is where the session cookie will be issued. Right now the
-  // reply is just an answer to "are these credentials valid?", and the server
-  // forgets you the instant it finishes sending it.
-  res.json({
-    ok: true,
-    user: { id: user.id, fullName: user.fullName, email: user.email },
-  })
+  // The password has now done its whole job. From here on the cookie is what
+  // identifies this person, and the password is not sent again.
+  startSession(res, user.id)
+
+  res.json({ ok: true, user: publicUser(user) })
+})
+
+// The protected route, and the reason sessions exist: it answers "who am I?"
+// with no email, no password and no argument of any kind. Everything it needs
+// arrived in a cookie the browser attached by itself.
+app.get('/api/me', requireSession, (req, res) => {
+  res.json({ ok: true, user: publicUser(req.user) })
 })
 
 app.listen(PORT, () => {
