@@ -7,6 +7,22 @@ import { readFile, writeFile } from 'node:fs/promises'
 const app = express()
 const PORT = 4000
 
+// --- Google OAuth configuration ---------------------------------------------
+
+// Read once at startup from server/.env, which npm run dev loads via Node's
+// --env-file-if-exists flag. Secrets live in the environment rather than in the
+// source so that the code can be committed and shared without them.
+const GOOGLE = {
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  redirectUri: process.env.GOOGLE_REDIRECT_URI,
+}
+
+// Fail loudly and early rather than with a confusing error from Google later.
+const googleConfigured = Boolean(
+  GOOGLE.clientId && GOOGLE.clientSecret && GOOGLE.redirectUri,
+)
+
 // Where the "database" lives. A JSON file is the smallest thing that survives a
 // server restart. It is fine for learning and wrong for production: every save
 // rewrites the whole file, and two requests arriving at once can overwrite each
@@ -216,7 +232,10 @@ app.post('/api/login', async (req, res) => {
   // what was just typed, using the salt baked into the stored hash, and see
   // whether the result matches. compare() does all of that. Nothing is ever
   // decrypted, because a hash cannot be reversed in the first place.
-  const passwordMatches = user
+  // `user.passwordHash` is checked as well as `user`, because an account created
+  // through Google has no password at all. Passing undefined to compare() would
+  // throw; the right answer is simply "these credentials do not work".
+  const passwordMatches = user?.passwordHash
     ? await bcrypt.compare(password, user.passwordHash)
     : false
 
@@ -252,6 +271,164 @@ app.get('/api/me', requireSession, (req, res) => {
 // No requireSession in front of this one on purpose: logging out when you were
 // not signed in should quietly succeed rather than fail. Asking for a state
 // that is already true is not an error.
+// --- Google sign-in, part 1: send the browser to Google ----------------------
+
+const OAUTH_STATE_COOKIE = 'oauth_state'
+
+app.get('/api/auth/google', (req, res) => {
+  if (!googleConfigured) {
+    return res.status(500).send('Google sign-in is not configured on this server.')
+  }
+
+  // The state parameter. A random value that goes to Google and comes back
+  // untouched, while a copy of it sits in a short-lived cookie. On the way back
+  // the two must match.
+  //
+  // Without it, anyone could send your callback URL a code of their own — for
+  // example a code tied to *their* Google account — and your server would
+  // happily attach that identity to whoever's browser followed the link. The
+  // cookie proves the callback belongs to the same browser that started this.
+  const state = randomBytes(16).toString('base64url')
+
+  res.cookie(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: 'lax', // must not be 'strict', or the cookie is missing on the
+    secure: false, //   way back, since that request comes from Google's domain
+    maxAge: 1000 * 60 * 10, // ten minutes is plenty to click one button
+    path: '/',
+  })
+
+  // Everything Google needs, as ordinary query-string parameters.
+  const params = new URLSearchParams({
+    client_id: GOOGLE.clientId,
+    redirect_uri: GOOGLE.redirectUri,
+
+    // "Send me a code, which I will exchange server-side for tokens." The
+    // alternative, response_type=token, hands tokens straight to the browser
+    // and is deprecated precisely because the browser cannot keep a secret.
+    response_type: 'code',
+
+    // What we are asking permission for. openid means "tell me who this is";
+    // email and profile add the address and the display name. Nothing else —
+    // asking for more than you need is both rude and a bigger consent screen.
+    scope: 'openid email profile',
+
+    state,
+  })
+
+  // 302 by default: "go here instead". The browser leaves your site entirely
+  // and the next thing the user sees is Google's own page.
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`)
+})
+
+// --- Google sign-in, part 2: the browser comes back ---------------------------
+
+// An id_token is a JWT: three base64url chunks joined by dots — header, payload
+// and signature. The payload is only encoded, not encrypted, so reading it
+// takes no key whatsoever. Anyone can decode one; that is by design.
+//
+// Which raises the obvious question: if anyone can write a JWT saying
+// "email: someone@gmail.com", why is this safe? Because of where this one came
+// from. It arrived in the reply to a request we made directly to Google's own
+// HTTPS endpoint, authenticated with our client secret. Nobody could have put
+// themselves in the middle of that.
+//
+// If an id_token ever reaches you any other way — posted by a browser, say —
+// you MUST verify its signature against Google's public keys before believing
+// a word of it. Google's own docs make exactly this distinction.
+function decodeIdToken(idToken) {
+  const payload = idToken.split('.')[1]
+  return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+}
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  const { code, state, error } = req.query
+
+  // The user pressed Cancel on Google's consent screen. Not a failure.
+  if (error) return res.redirect('/?auth=cancelled')
+
+  // Read the state cookie and immediately throw it away: it is good for exactly
+  // one round trip.
+  const expectedState = req.cookies[OAUTH_STATE_COOKIE]
+  res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' })
+
+  if (!code || !state || !expectedState || state !== expectedState) {
+    return res.redirect('/?auth=failed')
+  }
+
+  try {
+    // The one request in the whole flow that carries the client secret, and it
+    // goes server-to-server — the browser is not involved and never sees it.
+    // Note the body is form-encoded, not JSON: this endpoint predates the
+    // convention and Google's spec requires it.
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE.clientId,
+        client_secret: GOOGLE.clientSecret,
+        redirect_uri: GOOGLE.redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    })
+
+    if (!tokenResponse.ok) {
+      console.error('google token exchange failed:', await tokenResponse.text())
+      return res.redirect('/?auth=failed')
+    }
+
+    const tokens = await tokenResponse.json()
+    const profile = decodeIdToken(tokens.id_token)
+
+    // email_verified matters. A Google account can carry an unverified address,
+    // and trusting one would let somebody claim an email they do not own — and
+    // with it, any existing account here that uses that address.
+    if (!profile.email || !profile.email_verified) {
+      return res.redirect('/?auth=failed')
+    }
+
+    const email = profile.email.toLowerCase()
+    const users = await readUsers()
+    let user = users.find((candidate) => candidate.email === email)
+
+    if (user) {
+      // Same address as an account that already exists, so this is the same
+      // person: sign them in and remember the link. Safe only because Google
+      // just told us the address is verified.
+      if (!user.googleId) {
+        user.googleId = profile.sub
+        await writeUsers(users)
+      }
+    } else {
+      user = {
+        id: randomUUID(),
+        fullName: profile.name || email,
+        email,
+        // Deliberately no passwordHash. This account has no password at all,
+        // and there is nothing to hash — Google does the authenticating.
+        googleId: profile.sub, // Google's own stable id for this account
+        createdAt: new Date().toISOString(),
+      }
+      users.push(user)
+      await writeUsers(users)
+    }
+
+    console.log('google sign-in:', user.email)
+
+    // The same session cookie as every other way in. Past this line nothing in
+    // the app knows or cares that Google was involved.
+    startSession(res, user.id)
+
+    // Back to the app. A redirect, not JSON, because this request is a page
+    // navigation — the browser followed Google's redirect to get here.
+    res.redirect('/')
+  } catch (caught) {
+    console.error('google callback failed:', caught)
+    res.redirect('/?auth=failed')
+  }
+})
+
 app.post('/api/logout', (req, res) => {
   const sessionId = req.cookies[SESSION_COOKIE]
 
