@@ -40,7 +40,7 @@ do not claim tests pass; there are none.
 | 1 | Static UI: card, tabs, fields, social strip. No behaviour. | **done** |
 | 2 | Node + Express server in `server/`, health route, Vite proxy | **done** |
 | 3 | Email registration: POST `/api/register`, bcrypt hashing, persistence | **done** |
-| 4 | Login + session (httpOnly cookie or JWT), protected route | not started |
+| 4 | Login + session (httpOnly cookie or JWT), protected route | **done** |
 | 5 | Google OAuth wired to the existing Google button | not started |
 
 The frontend was deliberately built so stage 3 touches almost nothing: `handleSubmit` in

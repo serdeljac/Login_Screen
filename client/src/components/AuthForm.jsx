@@ -7,12 +7,13 @@ import './AuthForm.css'
 /**
  * The right-hand half of the screen.
  *
- * Sign-up now posts to the Node server. Login still does nothing on submit —
- * it has no route yet (that is stage 4 of the roadmap).
+ * Both modes submit to the Node server: sign-up creates the account, login
+ * checks an existing one. Either way the server replies with a session cookie
+ * and the user, and App swaps the screen.
  *
  * Props:
  *   mode             'login' | 'signup' — decides the heading, fields and button
- *   onAuthenticated  called with the new user once the server has created it;
+ *   onAuthenticated  called with the user once the server has accepted them;
  *                    App reacts by swapping the whole screen
  */
 export default function AuthForm({ mode, onAuthenticated }) {
@@ -44,14 +45,11 @@ export default function AuthForm({ mode, onAuthenticated }) {
     // Without this the browser reloads the page and the React state is lost.
     event.preventDefault()
 
-    // Login has no server route yet — stage 4.
-    if (!isSignUp) return
-
     // A check the server cannot do for us: only the browser knows what was
     // typed in the second password box. Client-side checks like this one are
     // for fast feedback only; the server must still validate everything,
     // because anything sent from a browser can be faked.
-    if (values.password !== values.confirmPassword) {
+    if (isSignUp && values.password !== values.confirmPassword) {
       setStatus('error')
       setMessage('Passwords do not match.')
       return
@@ -60,20 +58,24 @@ export default function AuthForm({ mode, onAuthenticated }) {
     setStatus('sending')
     setMessage('')
 
+    // The two flows differ in exactly two ways: the route, and whether the name
+    // travels with them. Everything after this point is identical, because both
+    // routes answer the same shape — a session cookie plus the user.
+    const endpoint = isSignUp ? '/api/register' : '/api/login'
+    const payload = isSignUp
+      ? { fullName: values.fullName, email: values.email, password: values.password }
+      : { email: values.email, password: values.password }
+
     try {
       // The URL has no hostname, so it goes to whatever origin the page is on
       // (localhost:5173) and Vite's proxy forwards it to the Node server.
-      const response = await fetch('/api/register', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         // Without this header Express does not know the body is JSON, and
         // express.json() will not parse it — req.body ends up empty.
         headers: { 'Content-Type': 'application/json' },
         // The body must be a string. JSON.stringify turns the object into one.
-        body: JSON.stringify({
-          fullName: values.fullName,
-          email: values.email,
-          password: values.password,
-        }),
+        body: JSON.stringify(payload),
       })
 
       // Reading the body is a second await: the headers arrive first, the body
