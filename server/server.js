@@ -1,9 +1,16 @@
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import cookieParser from 'cookie-parser'
-import { randomBytes, randomUUID } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
+// randomUUID is gone from here: the database generates user ids now.
+import { randomBytes } from 'node:crypto'
 import { checkConnection } from './db.js'
+import {
+  UNIQUE_VIOLATION,
+  attachGoogleId,
+  createUser,
+  findUserByEmail,
+  findUserById,
+} from './users.js'
 
 const app = express()
 const PORT = 4000
@@ -24,29 +31,9 @@ const googleConfigured = Boolean(
   GOOGLE.clientId && GOOGLE.clientSecret && GOOGLE.redirectUri,
 )
 
-// Where the "database" lives. A JSON file is the smallest thing that survives a
-// server restart. It is fine for learning and wrong for production: every save
-// rewrites the whole file, and two requests arriving at once can overwrite each
-// other. A real app uses a database.
-//
-// import.meta.url is this file's own location, so the path works no matter
-// which directory the server was started from.
-const USERS_FILE = new URL('./users.json', import.meta.url)
-
-async function readUsers() {
-  try {
-    return JSON.parse(await readFile(USERS_FILE, 'utf8'))
-  } catch (error) {
-    // ENOENT = "no such file", which is simply the state before the first
-    // signup. Any other error is a real problem and should not be swallowed.
-    if (error.code === 'ENOENT') return []
-    throw error
-  }
-}
-
-async function writeUsers(users) {
-  await writeFile(USERS_FILE, JSON.stringify(users, null, 2))
-}
+// User storage now lives in PostgreSQL — see users.js for every statement, and
+// schema.sql for the table. What used to be readUsers()/writeUsers() here was
+// the whole file being rewritten on every signup.
 
 // --- Sessions ---------------------------------------------------------------
 
@@ -127,11 +114,10 @@ async function requireSession(req, res, next) {
     return res.status(401).json({ ok: false, error: 'Not signed in.' })
   }
 
-  const users = await readUsers()
-  const user = users.find((candidate) => candidate.id === session.userId)
+  const user = await findUserById(session.userId)
 
   // A live session pointing at an account that no longer exists — deleted
-  // since, or wiped along with users.json. Throw the session away too.
+  // since, or wiped when the table was rebuilt. Throw the session away too.
   if (!user) {
     sessions.delete(sessionId)
     return res.status(401).json({ ok: false, error: 'Not signed in.' })
@@ -198,14 +184,6 @@ app.post('/api/register', async (req, res) => {
   // Stored lowercase so that Ada@x.com and ada@x.com cannot become two accounts.
   const normalisedEmail = email.trim().toLowerCase()
 
-  const users = await readUsers()
-
-  // 409 = "conflict": the request was valid, but it clashes with what already
-  // exists. Distinct from 400, which means the request itself was malformed.
-  if (users.some((user) => user.email === normalisedEmail)) {
-    return res.status(409).json({ ok: false, error: 'That email is already registered.' })
-  }
-
   // THE IMPORTANT LINE.
   //
   // A hash is one-way: 'hunter2' always produces the same hash, but nothing can
@@ -225,16 +203,30 @@ app.post('/api/register', async (req, res) => {
   // it looks like $2b$12$<salt><hash> — nothing else needs saving.
   const passwordHash = await bcrypt.hash(password, 12)
 
-  const user = {
-    id: randomUUID(),
-    fullName: fullName.trim(),
-    email: normalisedEmail,
-    passwordHash,
-    createdAt: new Date().toISOString(),
+  // No "is this email taken?" query before the insert. That check-then-write
+  // pattern is what the JSON version did, and it is a race: two signups can
+  // both pass the check before either writes. Instead we simply insert, and let
+  // the UNIQUE constraint be the referee — it is checked as part of the write,
+  // so there is no gap to lose.
+  //
+  // The trade-off is that a duplicate signup pays for a bcrypt hash it will not
+  // use. Roughly 200ms wasted on a request that was going to fail anyway; the
+  // correctness is worth more.
+  let user
+  try {
+    user = await createUser({
+      fullName: fullName.trim(),
+      email: normalisedEmail,
+      passwordHash,
+    })
+  } catch (error) {
+    // 409 = "conflict": the request was valid, but it clashes with what already
+    // exists. Distinct from 400, which means the request itself was malformed.
+    if (error.code === UNIQUE_VIOLATION) {
+      return res.status(409).json({ ok: false, error: 'That email is already registered.' })
+    }
+    throw error // anything else is a real fault — let the error handler log it
   }
-
-  users.push(user)
-  await writeUsers(users)
 
   console.log('registered:', user.email)
 
@@ -254,8 +246,7 @@ app.post('/api/login', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Email and password are required.' })
   }
 
-  const users = await readUsers()
-  const user = users.find((candidate) => candidate.email === email.trim().toLowerCase())
+  const user = await findUserByEmail(email.trim().toLowerCase())
 
   // How checking a password works when the password was never stored: hash
   // what was just typed, using the salt baked into the stored hash, and see
@@ -418,29 +409,23 @@ app.get('/api/auth/google/callback', async (req, res) => {
     }
 
     const email = profile.email.toLowerCase()
-    const users = await readUsers()
-    let user = users.find((candidate) => candidate.email === email)
+    let user = await findUserByEmail(email)
 
     if (user) {
       // Same address as an account that already exists, so this is the same
       // person: sign them in and remember the link. Safe only because Google
       // just told us the address is verified.
       if (!user.googleId) {
-        user.googleId = profile.sub
-        await writeUsers(users)
+        user = await attachGoogleId(user.id, profile.sub)
       }
     } else {
-      user = {
-        id: randomUUID(),
+      user = await createUser({
         fullName: profile.name || email,
         email,
         // Deliberately no passwordHash. This account has no password at all,
         // and there is nothing to hash — Google does the authenticating.
         googleId: profile.sub, // Google's own stable id for this account
-        createdAt: new Date().toISOString(),
-      }
-      users.push(user)
-      await writeUsers(users)
+      })
     }
 
     console.log('google sign-in:', user.email)
@@ -473,6 +458,17 @@ app.post('/api/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { path: '/', httpOnly: true, sameSite: 'lax' })
 
   res.json({ ok: true })
+})
+
+// An error handler: four arguments instead of three is how Express recognises
+// one, and it must come after every route. Express 5 forwards a rejected
+// promise from an async handler here automatically — in Express 4 it did not,
+// and an unhandled rejection in a route would silently hang the request.
+app.use((error, req, res, next) => {
+  console.error('unhandled error:', error)
+  // Deliberately vague: internal messages can name tables, columns and file
+  // paths, which is free reconnaissance for anyone poking at the API.
+  res.status(500).json({ ok: false, error: 'Something went wrong.' })
 })
 
 app.listen(PORT, () => {

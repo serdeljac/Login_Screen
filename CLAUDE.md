@@ -16,7 +16,11 @@ should shape every change:
 
 ## Commands
 
-All frontend commands run from `client/`:
+**Two processes have to be running.** Vite serves the page on 5173 and proxies anything
+starting with `/api` to Express on 4000. Start the API first or the first `/api/me` on page
+load returns a proxy error.
+
+Frontend:
 
 ```bash
 npm run dev --prefix client
@@ -26,12 +30,28 @@ npm run dev --prefix client
 npm run build --prefix client
 ```
 
+API (loads `server/.env`, restarts on save):
+
 ```bash
-npm run preview --prefix client
+npm run dev --prefix server
 ```
 
-Dev server: http://localhost:5173. There is no test runner and no linter configured yet —
-do not claim tests pass; there are none.
+Applies `schema.sql`; safe to re-run:
+
+```bash
+npm run migrate --prefix server
+```
+
+One-off, already done once — copies `users.json` into Postgres:
+
+```bash
+npm run import-users --prefix server
+```
+
+Dev server: http://localhost:5173, API: http://localhost:4000. There is no test runner and no
+linter configured yet — do not claim tests pass; there are none. `GET /api/health` is the
+fastest check that both halves and the database are alive; it returns 503 if the DB is
+unreachable.
 
 ## Roadmap and current stage
 
@@ -42,19 +62,86 @@ do not claim tests pass; there are none.
 | 3 | Email registration: POST `/api/register`, bcrypt hashing, persistence | **done** |
 | 4 | Login + session (httpOnly cookie or JWT), protected route | **done** |
 | 5 | Google OAuth wired to the existing Google button | **done** |
+| 6 | User storage moved from `users.json` to PostgreSQL on AWS RDS | **done** |
 
-The frontend was deliberately built so stage 3 touches almost nothing: `handleSubmit` in
-[AuthForm.jsx](client/src/components/AuthForm.jsx) is an empty stub, and the proxy config in
-[vite.config.js](client/vite.config.js) is written out and commented for stage 2.
+The roadmap is finished. Two things were deliberately left undone, and both are reasonable
+next steps rather than oversights:
+
+- **Sessions are still an in-memory `Map`**, so every restart signs everyone out — and with
+  `node --watch` that is every save. Moving them to a `sessions` table is the obvious
+  follow-on now that a database exists.
+- **No rate limiting on `/api/login`.** Nothing stops thousands of password attempts.
 
 ## Architecture
 
 ```
-client/          Vite + React 19, plain CSS (no Tailwind, no UI library — intentional)
-server/          does not exist yet (stage 2)
+client/            Vite + React 19, plain CSS (no Tailwind, no UI library — intentional)
+server/            Node 22 + Express 5
+  server.js        all routes: health, register, login, logout, me, google oauth
+  db.js            the pg Pool, the TLS decision, and query()
+  users.js         every SQL statement about users, and nothing else
+  schema.sql       the users table
+  migrate.js       applies schema.sql
+  import-users.js  one-off users.json -> Postgres
+  .env             secrets, gitignored — never commit a filled-in env file
 ```
 
-**State lives in exactly one place.** `AuthCard` owns `mode` (`'login' | 'signup'`). It passes
+**The backend is split by "what changes together".** Routes know about HTTP; `users.js` knows
+about SQL; `db.js` knows about connections. A route never writes SQL, which is why moving from
+JSON to Postgres touched `server.js` in only four places.
+
+**Storage is PostgreSQL on AWS RDS (`ca-central-1`), reached over the public internet.**
+Consequences that will bite otherwise:
+
+- **The security group allows exactly one IP.** When queries that worked yesterday start
+  timing out, it is almost always that the ISP moved the laptop to a new address. Update the
+  inbound rule. The symptom is a *timeout*, never a refusal — security groups drop packets
+  silently. `ECONNREFUSED` would mean something else entirely.
+- **TLS is on but unverified** unless `server/rds-global-bundle.pem` exists; `db.js` picks it
+  up automatically and stops warning at startup. Download it from
+  `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`.
+- **The instance bills while it exists**, idle or not. Delete it when the project is done.
+
+**The `UNIQUE` constraint on `email` is the duplicate check.** Registration does *not* query
+first and insert second — that is a race two simultaneous signups can both win. It inserts and
+catches error code `23505` (`UNIQUE_VIOLATION`). Do not "improve" this by adding a lookup
+first. The same applies to `google_id`, which is `UNIQUE` *and* nullable: PostgreSQL permits
+any number of NULLs in a unique column, which is what lets every password-only account have
+none.
+
+**`password_hash` is nullable on purpose** — a Google account has no password — and a `CHECK`
+constraint (`users_need_a_way_in`) enforces that every row has at least one of a password or a
+Google id. Anything reading `passwordHash` must handle null; `/api/login` does, and passing
+undefined to `bcrypt.compare` throws.
+
+**Column names are translated in `users.js`, not everywhere.** SQL is snake_case, JS is
+camelCase, so every query aliases (`full_name AS "fullName"`). The double quotes are required
+or PostgreSQL folds the alias to lowercase. Columns are always listed explicitly — no
+`SELECT *` — so a sensitive column added later cannot silently reach the client.
+
+**`publicUser()` is the only shape of a user allowed out of the server.** It derives
+`providers` from which credentials exist rather than storing them, and it is what keeps
+`passwordHash` from leaking through a route that forgot to strip it.
+
+**Transactions need `pool.connect()`, not `query()`.** The pool hands each `query()` call
+whichever connection is free, so a `BEGIN`/`INSERT`/`ROLLBACK` written with `query()` runs on
+three different connections and silently commits. Check out one client, run everything on it,
+`release()` in a `finally`. Also: one failed statement aborts the whole transaction until
+rollback — use `SAVEPOINT` if later statements must still run.
+
+**Auth deliberately gives vague failures.** Wrong password and unknown email return the same
+`401` and the same message, and a Google-only account asked for a password login returns it
+too. A clearer message would tell a stranger which addresses have accounts here (user
+enumeration). This is a decision, not an oversight — do not "helpfully" make these specific.
+
+**Secrets live only in `server/.env`.** There is no `.env.example`; it was deleted after real
+credentials were pasted into it, since it is the one env file `.gitignore` allows through
+(`!.env.example`). If you reintroduce a template, keep it empty. The env file is read once at
+startup via Node's `--env-file-if-exists`, so changes need a restart — no `dotenv` dependency.
+
+**State lives in exactly one place on the client.** `App` owns `user` (null until `/api/me`
+answers) and swaps whole screens with it — there is still no router, and swapping components
+*is* the navigation. `AuthCard` owns `mode` (`'login' | 'signup'`). It passes
 `mode` down to both children and hands `setMode` to `SidePanel` as `onModeChange`. `AuthForm`
 owns its own field values in a single `values` object keyed by each input's `name` attribute,
 so adding a field requires no new `useState`. There is no context, no router, no state library
