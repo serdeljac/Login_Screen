@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "//": "--watch is built into Node 18+; it restarts on every file save.",
-    "dev": "node --watch server.js"
+    "dev": "node --watch --env-file-if-exists=.env server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
