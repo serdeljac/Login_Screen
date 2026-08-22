@@ -16,14 +16,18 @@ import './AuthForm.css'
  *   onAuthenticated  called with the user once the server has accepted them;
  *                    App reacts by swapping the whole screen
  */
-export default function AuthForm({ mode, onAuthenticated }) {
+export default function AuthForm({ mode, onAuthenticated, notice }) {
   const isSignUp = mode === 'signup'
 
   // What the form is currently doing, and the one line of feedback shown to
   // the user. 'sending' exists so the button can be disabled while a request
   // is in flight — otherwise an impatient double-click sends two signups.
-  const [status, setStatus] = useState('idle') // 'idle' | 'sending' | 'error'
-  const [message, setMessage] = useState('')
+  //
+  // `notice` seeds them: it is how a failed Google redirect, which happened
+  // before this component existed, still gets its message on screen. Both are
+  // ordinary state from then on, so submitting the form overwrites it.
+  const [status, setStatus] = useState(notice ? 'error' : 'idle') // 'idle' | 'sending' | 'error'
+  const [message, setMessage] = useState(notice || '')
 
   // One state object for the whole form. `handleChange` below writes into it
   // using each input's `name` attribute, so adding a field needs no new state.

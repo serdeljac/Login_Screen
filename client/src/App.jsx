@@ -14,6 +14,25 @@ export default function App() {
   // screen, and then replace it — an ugly blink on every refresh.
   const [checkingSession, setCheckingSession] = useState(true)
 
+  // The Google callback cannot show a message — it is a server redirect, and
+  // the server does not render anything. So it reports back through the URL
+  // (/?auth=failed) and this turns that into something readable.
+  //
+  // Passing a *function* to useState means it runs once, on the first render,
+  // instead of on every one. It matters here because of the side effect below.
+  const [notice] = useState(() => {
+    const auth = new URLSearchParams(window.location.search).get('auth')
+    if (!auth) return ''
+
+    // Rewrite the address bar to plain "/" without reloading, so refreshing
+    // does not show a stale message about something that happened once.
+    window.history.replaceState({}, '', window.location.pathname)
+
+    return auth === 'cancelled'
+      ? 'Google sign-in was cancelled.'
+      : 'Google sign-in did not work. Please try again.'
+  })
+
   useEffect(() => {
     // Runs once, after the first render. Note there is nothing to send: the
     // browser attaches the session cookie by itself, so this is simply the app
@@ -48,7 +67,7 @@ export default function App() {
       {user ? (
         <Welcome user={user} onLogout={handleLogout} />
       ) : (
-        <AuthCard onAuthenticated={setUser} />
+        <AuthCard onAuthenticated={setUser} notice={notice} />
       )}
     </main>
   )

@@ -8,20 +8,30 @@ import { GoogleIcon, FacebookIcon } from './icons.jsx'
  * three items stay lined up with the fields instead of drifting apart on a
  * wide monitor.
  *
- * These buttons are inert for now. Wiring the Google one up is the "or Gmail"
- * half of the project and happens after the email flow works — see step 5 in
- * CLAUDE.md. Real OAuth means redirecting the browser to Google, so there is
- * nothing useful to do here until the Node server exists to redirect back to.
+ * The Facebook button is still inert — it is not on the roadmap.
  */
 export default function SocialLogin({ mode }) {
   const verb = mode === 'signup' ? 'Sign Up' : 'Login'
+
+  function handleGoogle() {
+    // A whole-page navigation, deliberately not a fetch.
+    //
+    // fetch() would be wrong twice over: the response is a redirect to
+    // accounts.google.com, which the browser's same-origin rules will not let
+    // this page read — and more importantly the user has to *see* Google's
+    // login and consent screen. Handing the address bar over is the point.
+    //
+    // The URL is relative, so this hits Vite on 5173 and the proxy passes it to
+    // the Node server, exactly like every other /api call.
+    window.location.href = '/api/auth/google'
+  }
 
   return (
     <div className="social">
       <div className="social__inner">
         <span className="social__label">Or {verb} With</span>
 
-        <button type="button" className="social__button">
+        <button type="button" className="social__button" onClick={handleGoogle}>
           <GoogleIcon className="social__icon" />
           Google
         </button>

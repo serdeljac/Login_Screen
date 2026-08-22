@@ -7,13 +7,13 @@ import './AuthCard.css'
 // which is the only thing that knows when a signup succeeded. Passing a prop
 // through a middle component like this is called prop drilling; at two levels
 // it is far simpler than any alternative.
-export default function AuthCard({ onAuthenticated }) {
+export default function AuthCard({ onAuthenticated, notice }) {
   const [mode, setMode] = useState('login')
 
   return (
     <section className="auth-card">
       <SidePanel mode={mode} onModeChange={setMode} />
-      <AuthForm mode={mode} onAuthenticated={onAuthenticated} />
+      <AuthForm mode={mode} onAuthenticated={onAuthenticated} notice={notice} />
     </section>
   )
 }
