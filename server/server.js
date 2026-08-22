@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import cookieParser from 'cookie-parser'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
+import { checkConnection } from './db.js'
 
 const app = express()
 const PORT = 4000
@@ -96,7 +97,18 @@ function startSession(res, userId) {
 // The only shape of a user that is ever allowed out of this server. Writing it
 // once means the password hash cannot leak by someone forgetting to strip it.
 function publicUser(user) {
-  return { id: user.id, fullName: user.fullName, email: user.email }
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+
+    // Which ways in this account has. Derived rather than stored, so it cannot
+    // drift out of step with reality, and it deliberately says *whether* a
+    // password exists without exposing anything about it.
+    providers: [user.passwordHash && 'password', user.googleId && 'google'].filter(
+      Boolean,
+    ),
+  }
 }
 
 // Middleware again — but this one guards. Put it in front of any route that
@@ -140,8 +152,25 @@ app.use(express.json())
 // turns it into the object req.cookies. Without it, req.cookies is undefined.
 app.use(cookieParser())
 
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, message: 'server is alive' })
+app.get('/api/health', async (req, res) => {
+  // "Is the server up" and "can the server reach its database" are different
+  // questions, and a health check that only answers the first one is the reason
+  // dashboards go green while the app is completely broken.
+  try {
+    const info = await checkConnection()
+    res.json({
+      ok: true,
+      message: 'server is alive',
+      database: { ok: true, serverTime: info.server_time },
+    })
+  } catch (error) {
+    // 503 = "I am running but a thing I depend on is not."
+    res.status(503).json({
+      ok: false,
+      message: 'server is alive',
+      database: { ok: false, error: error.message },
+    })
+  }
 })
 
 // POST, not GET: GET asks for something, POST sends something that changes

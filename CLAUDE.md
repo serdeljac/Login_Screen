@@ -41,7 +41,7 @@ do not claim tests pass; there are none.
 | 2 | Node + Express server in `server/`, health route, Vite proxy | **done** |
 | 3 | Email registration: POST `/api/register`, bcrypt hashing, persistence | **done** |
 | 4 | Login + session (httpOnly cookie or JWT), protected route | **done** |
-| 5 | Google OAuth wired to the existing Google button | not started |
+| 5 | Google OAuth wired to the existing Google button | **done** |
 
 The frontend was deliberately built so stage 3 touches almost nothing: `handleSubmit` in
 [AuthForm.jsx](client/src/components/AuthForm.jsx) is an empty stub, and the proxy config in

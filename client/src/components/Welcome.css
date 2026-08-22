@@ -16,6 +16,14 @@
   color: var(--ink-muted);
 }
 
+.welcome__providers {
+  margin: -12px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--neon);
+  opacity: 0.75;
+}
+
 /* A quiet outline button rather than the neon fill of the submit button:
    logging out is not the thing anyone came here to do. */
 .welcome__logout {
